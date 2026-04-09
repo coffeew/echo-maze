@@ -213,16 +213,31 @@ class Audio {
         osc.start(this.ctx.currentTime + delay);
         osc.stop(this.ctx.currentTime + delay + dur);
     }
-    emit()      { this._play(520, 0.08, 'sine', 0.2); }
+    emit() {
+        // 柔和的低频水滴音：短促淡入淡出
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const g   = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(320, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(180, this.ctx.currentTime + 0.12);
+        g.gain.setValueAtTime(0, this.ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.15, this.ctx.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.18);
+        osc.connect(g); g.connect(this.ctx.destination);
+        osc.start(this.ctx.currentTime);
+        osc.stop(this.ctx.currentTime + 0.2);
+    }
     echo(dist, mat) {
-        const base = mat==='metal'?900 : mat==='wood'?280 : 200;
-        const freq = base * Math.max(0.4, 1 - dist/700);
+        const base = mat==='metal' ? 420 : mat==='wood' ? 240 : 180;
+        const freq = base * Math.max(0.5, 1 - dist/800);
         const delay = dist / 5000;
-        const type  = mat==='metal' ? 'triangle' : 'sine';
-        this._play(freq, 0.25, type, 0.18, delay);
+        // 统一用 sine，柔和不刺耳；金属加轻微混响感（稍长持续）
+        const dur = mat==='metal' ? 0.35 : 0.22;
+        this._play(freq, dur, 'sine', 0.12, delay);
     }
     win()  { [523,659,784,1047].forEach((f,i)=>this._play(f,0.2,'sine',0.25,i*0.15)); }
-    fail() { this._play(180, 0.6, 'sawtooth', 0.2); }
+    fail() { this._play(220, 0.5, 'sine', 0.15); }
     step() { this._play(rnd(200,240), 0.04, 'sine', 0.05); }
 }
 
