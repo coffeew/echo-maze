@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>回声迷宫 - Echo Maze</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #060610;
+            color: #fff;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+        #title {
+            font-size: 20px;
+            letter-spacing: 4px;
+            color: #4488ff;
+            margin-bottom: 10px;
+            text-shadow: 0 0 15px #4488ff;
+        }
+        #gameWrap {
+            position: relative;
+        }
+        canvas {
+            display: block;
+            border: 1px solid #1a2050;
+            border-radius: 4px;
+            box-shadow: 0 0 40px rgba(30, 80, 200, 0.4);
+        }
+        #hud {
+            position: absolute;
+            top: 8px;
+            left: 0; right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 12px;
+            pointer-events: none;
+        }
+        .hud-pill {
+            background: rgba(0,0,0,0.75);
+            border: 1px solid #223;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 15px;
+            font-weight: bold;
+        }
+        #emitCount { color: #44bbff; }
+        #levelName  { color: #ffbb33; }
+
+        /* 全屏覆盖 overlay */
+        #overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.82);
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+        #overlay h2 { font-size: 28px; text-shadow: 0 0 12px #fff; }
+        #overlay p  { font-size: 15px; color: #aaa; max-width: 320px; text-align: center; }
+        #overlay .btn-row { display: flex; gap: 12px; margin-top: 6px; }
+        .btn {
+            background: linear-gradient(135deg, #3355cc, #6633cc);
+            color: #fff;
+            border: none;
+            padding: 10px 26px;
+            border-radius: 24px;
+            font-size: 15px;
+            cursor: pointer;
+            transition: transform .15s;
+        }
+        .btn:hover { transform: scale(1.06); }
+        .btn:active { transform: scale(.96); }
+        .btn.secondary {
+            background: linear-gradient(135deg, #224, #335);
+        }
+
+        #controls {
+            margin-top: 12px;
+            display: flex;
+            gap: 10px;
+        }
+        #hint {
+            margin-top: 8px;
+            color: #556;
+            font-size: 13px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<div id="title">E C H O &nbsp; M A Z E &nbsp; 回声迷宫</div>
+<div id="gameWrap">
+    <canvas id="c" width="800" height="560"></canvas>
+    <div id="hud">
+        <div class="hud-pill" id="emitCount">声波: --</div>
+        <div class="hud-pill" id="levelName">--</div>
+    </div>
+    <div id="overlay">
+        <h2>回声迷宫</h2>
+        <p>在完全黑暗的迷宫中<br>点击发出声波，听回声判断方向<br>用 WASD 或方向键移动角色</p>
+        <div class="btn-row">
+            <button class="btn" id="startBtn">开始游戏</button>
+        </div>
+    </div>
+</div>
+<div id="controls">
+    <button class="btn secondary" onclick="G.restart()">重新开始</button>
+    <button class="btn secondary" onclick="G.nextLevel()">下一关</button>
+</div>
+<div id="hint">点击画布：发出声波 &nbsp;|&nbsp; WASD / 方向键：移动角色 &nbsp;|&nbsp; 找到绿色出口逃脱</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  辅助
+// ─────────────────────────────────────────────
+function rnd(a, b){ return Math.floor(Math.random()*(b-a+1))+a; }
+function dist2(ax,ay,bx,by){ return Math.sqrt((ax-bx)**2+(ay-by)**2); }
+
+// ─────────────────────────────────────────────
+//  迷宫生成（Perfect Maze，DFS Recursive Backtracker）
+//  保证连通，每格只有一条路
+// ─────────────────────────────────────────────
+class MazeGen {
+    // cols/rows: 迷宫格子数（奇数）
+    // 返回: { walls: [{x,y,w,h,mat}], cellW, cellH }
+    static generate(cols, rows, cellW, cellH, wallT, matFn) {
+        // maze[r][c] = true 表示"通道"
+        const visited = Array.from({length: rows}, () => new Array(cols).fill(false));
+        const passages = new Set(); // "r1,c1-r2,c2" => 两格之间的通道打开
+
+        function dfs(r, c) {
+            visited[r][c] = true;
+            const dirs = [[0,1],[0,-1],[1,0],[-1,0]].sort(()=>Math.random()-.5);
+            for (const [dr, dc] of dirs) {
+                const nr = r + dr, nc = c + dc;
+                if (nr>=0 && nr<rows && nc>=0 && nc<cols && !visited[nr][nc]) {
+                    // 打通 (r,c) -> (nr,nc)
+                    passages.add(`${Math.min(r,nr)},${Math.min(c,nc)}-${Math.max(r,nr)},${Math.max(c,nc)}`);
+                    dfs(nr, nc);
+                }
+            }
+        }
+        dfs(0, 0);
+
+        const walls = [];
+        // 外边界
+        walls.push({x:0, y:0, w:cols*cellW, h:wallT, mat:'stone'});         // 上
+        walls.push({x:0, y:rows*cellH-wallT, w:cols*cellW, h:wallT, mat:'stone'}); // 下
+        walls.push({x:0, y:0, w:wallT, h:rows*cellH, mat:'stone'});          // 左
+        walls.push({x:cols*cellW-wallT, y:0, w:wallT, h:rows*cellH, mat:'stone'}); // 右
+
+        // 内部墙：格子之间若未打通则建墙
+        for (let r=0; r<rows; r++) {
+            for (let c=0; c<cols; c++) {
+                // 右边墙
+                if (c+1 < cols) {
+                    const key = `${r},${c}-${r},${c+1}`;
+                    if (!passages.has(key)) {
+                        walls.push({
+                            x: (c+1)*cellW - wallT/2,
+                            y: r*cellH,
+                            w: wallT, h: cellH,
+                            mat: matFn(r,c,'v')
+                        });
+                    }
+                }
+                // 下边墙
+                if (r+1 < rows) {
+                    const key = `${r},${c}-${r+1},${c}`;
+                    if (!passages.has(key)) {
+                        walls.push({
+                            x: c*cellW,
+                            y: (r+1)*cellH - wallT/2,
+                            w: cellW, h: wallT,
+                            mat: matFn(r,c,'h')
+                        });
+                    }
+                }
+            }
+        }
+        return walls;
+    }
+}
+
+// ─────────────────────────────────────────────
+//  音频
+// ─────────────────────────────────────────────
+class Audio {
+    constructor() {
+        try { this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }
+        catch(e) { this.ctx = null; }
+    }
+    _play(freq, dur, type='sine', vol=0.25, delay=0) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const g   = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        g.gain.setValueAtTime(vol, this.ctx.currentTime + delay);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + delay + dur);
+        osc.connect(g); g.connect(this.ctx.destination);
+        osc.start(this.ctx.currentTime + delay);
+        osc.stop(this.ctx.currentTime + delay + dur);
+    }
+    emit()      { this._play(520, 0.08, 'sine', 0.2); }
+    echo(dist, mat) {
+        const base = mat==='metal'?900 : mat==='wood'?280 : 200;
+        const freq = base * Math.max(0.4, 1 - dist/700);
+        const delay = dist / 5000;
+        const type  = mat==='metal' ? 'triangle' : 'sine';
+        this._play(freq, 0.25, type, 0.18, delay);
+    }
+    win()  { [523,659,784,1047].forEach((f,i)=>this._play(f,0.2,'sine',0.25,i*0.15)); }
+    fail() { this._play(180, 0.6, 'sawtooth', 0.2); }
+    step() { this._play(rnd(200,240), 0.04, 'sine', 0.05); }
+}
+
+// ─────────────────────────────────────────────
+//  关卡定义
+// ─────────────────────────────────────────────
+const LEVELS = [
+    { name:'第一关 · 初探黑暗', cols:10, rows:8,  emits:10, desc:'找到绿色出口，声波有限，谨慎使用' },
+    { name:'第二关 · 幽暗走廊', cols:13, rows:10, emits:8,  desc:'迷宫更大，每次声波都要算准方向' },
+    { name:'第三关 · 深渊迷宫', cols:16, rows:11, emits:7,  desc:'几乎看不见，声波是你唯一的眼睛' },
+    { name:'第四关 · 绝境求生', cols:20, rows:13, emits:6,  desc:'极限挑战，用6次声波穿越迷宫' },
+];
+
+// ─────────────────────────────────────────────
+//  主游戏类
+// ─────────────────────────────────────────────
+class Game {
+    constructor() {
+        this.canvas  = document.getElementById('c');
+        this.ctx     = this.canvas.getContext('2d');
+        this.audio   = new Audio();
+        this.overlay = document.getElementById('overlay');
+        this.emitEl  = document.getElementById('emitCount');
+        this.nameEl  = document.getElementById('levelName');
+
+        this.WALL_T  = 10;
+        this.levelIdx = 0;
+        this.running  = false;
+
+        // 键盘方向
+        this.keys = {};
+        window.addEventListener('keydown', e => { this.keys[e.key] = true; });
+        window.addEventListener('keyup',   e => { this.keys[e.key] = false; });
+
+        // 点击发声（和移动完全分离）
+        this.canvas.addEventListener('click', e => {
+            if (!this.running || this.won || this.dead) return;
+            const r = this.canvas.getBoundingClientRect();
+            const scaleX = this.canvas.width  / r.width;
+            const scaleY = this.canvas.height / r.height;
+            // 声波从玩家位置发射，和点击位置无关
+            this.emitWave();
+        });
+
+        document.getElementById('startBtn').addEventListener('click', () => {
+            this.audio.ctx && this.audio.ctx.resume();
+            this.loadLevel(0);
+            this.hideOverlay();
+            this.running = true;
+        });
+
+        this.loop();
+    }
+
+    // ── 关卡加载 ──────────────────────────────
+    loadLevel(idx) {
+        if (idx >= LEVELS.length) {
+            this.showOverlay('🎊 全关通关！', '你已成为回声大师！', false);
+            this.running = false;
+            return;
+        }
+        const lv = LEVELS[idx];
+        this.levelIdx = idx;
+        this.cellW = Math.floor((this.canvas.width  - this.WALL_T) / lv.cols);
+        this.cellH = Math.floor((this.canvas.height - this.WALL_T) / lv.rows);
+        this.COLS  = lv.cols;
+        this.ROWS  = lv.rows;
+
+        // 材质分布：左半石头，右半木头，中间有金属
+        const matFn = (r, c, dir) => {
+            const cx = c / this.COLS;
+            if (cx < 0.33) return 'stone';
+            if (cx > 0.66) return 'wood';
+            return 'metal';
+        };
+
+        this.walls = MazeGen.generate(lv.cols, lv.rows, this.cellW, this.cellH, this.WALL_T, matFn);
+
+        // 玩家在左上角格子中心
+        this.px = this.cellW * 0.5;
+        this.py = this.cellH * 0.5;
+        this.PLAYER_R = Math.min(this.cellW, this.cellH) * 0.22;
+        this.SPEED     = Math.min(this.cellW, this.cellH) * 0.04;
+
+        // 出口在右下角格子中心
+        this.exitX = this.cellW * (lv.cols - 0.5);
+        this.exitY = this.cellH * (lv.rows - 0.5);
+        this.EXIT_R = this.PLAYER_R * 1.6;
+
+        // 声波
+        this.waves   = [];
+        this.emits   = lv.emits;
+        this.maxEmits= lv.emits;
+        this.cooldown= 0;
+        this.COOL_MAX= 18; // 帧
+
+        // 视野：用 canvas 内的像素 bitmap
+        this.fogCanvas = document.createElement('canvas');
+        this.fogCanvas.width  = this.canvas.width;
+        this.fogCanvas.height = this.canvas.height;
+        this.fogCtx = this.fogCanvas.getContext('2d');
+        // 初始全黑
+        this.fogCtx.fillStyle = '#000';
+        this.fogCtx.fillRect(0, 0, this.fogCanvas.width, this.fogCanvas.height);
+        // 起点周围揭示一小块
+        this.revealCircle(this.px, this.py, this.cellW * 0.45);
+
+        this.won  = false;
+        this.dead = false;
+        this.stepTimer = 0;
+
+        this.updateHUD();
+    }
+
+    restart()   { this.running = true; this.hideOverlay(); this.loadLevel(this.levelIdx); }
+    nextLevel() { this.running = true; this.hideOverlay(); this.loadLevel(this.levelIdx + 1); }
+
+    // ── 迷雾 ──────────────────────────────────
+    revealCircle(cx, cy, r) {
+        // 用 destination-out 在迷雾 canvas 上"擦除"圆形区域
+        this.fogCtx.globalCompositeOperation = 'destination-out';
+        const grad = this.fogCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grad.addColorStop(0,   'rgba(0,0,0,1)');
+        grad.addColorStop(0.6, 'rgba(0,0,0,0.9)');
+        grad.addColorStop(1,   'rgba(0,0,0,0)');
+        this.fogCtx.fillStyle = grad;
+        this.fogCtx.beginPath();
+        this.fogCtx.arc(cx, cy, r, 0, Math.PI*2);
+        this.fogCtx.fill();
+        this.fogCtx.globalCompositeOperation = 'source-over';
+    }
+
+    // ── 声波 ──────────────────────────────────
+    emitWave() {
+        if (this.emits <= 0) { this.flashEmpty(); return; }
+        if (this.cooldown > 0) return;
+        this.emits--;
+        this.cooldown = this.COOL_MAX;
+        this.audio.emit();
+        this.updateHUD();
+
+        // 最后1次声波：播放紧张音效
+        if (this.emits === 0) {
+            setTimeout(() => { if(this.audio.ctx) this.audio._play(180, 0.4, 'sawtooth', 0.1, 0.05); }, 300);
+        }
+
+        const wave = {
+            ox: this.px, oy: this.py,
+            r: 0,
+            maxR: Math.max(this.canvas.width, this.canvas.height) * 1.2,
+            speed: 5,
+            alpha: 1,
+            echos: this.castRays(this.px, this.py),
+        };
+        this.waves.push(wave);
+    }
+
+    castRays(ox, oy) {
+        const STEPS = 360;         // 每1度一条射线
+        const DSTEP = 1.5;
+        const echos = [];
+
+        for (let i = 0; i < STEPS; i++) {
+            const angle = (i / STEPS) * Math.PI * 2;
+            const dx = Math.cos(angle);
+            const dy = Math.sin(angle);
+
+            for (let d = 4; d < 1200; d += DSTEP) {
+                const cx = ox + dx * d;
+                const cy = oy + dy * d;
+                if (cx < 0 || cy < 0 || cx > this.canvas.width || cy > this.canvas.height) break;
+
+                const wall = this.hitWall(cx, cy);
+                if (wall) {
+                    echos.push({ x: cx, y: cy, mat: wall.mat, d, alpha: 1 });
+                    // 声波路径上揭示区域（只揭示碰撞点，不揭示整条路径→无法穿墙作弊）
+                    this.revealCircle(cx, cy, this.cellW * 0.28);
+                    this.audio.echo(d, wall.mat);
+                    break;
+                }
+            }
+        }
+        return echos;
+    }
+
+    hitWall(px, py) {
+        for (const w of this.walls) {
+            if (px >= w.x && px <= w.x + w.w && py >= w.y && py <= w.y + w.h) return w;
+        }
+        return null;
+    }
+
+    // ── 移动 ──────────────────────────────────
+    movePlayer() {
+        let vx = 0, vy = 0;
+        if (this.keys['ArrowLeft']  || this.keys['a'] || this.keys['A']) vx -= 1;
+        if (this.keys['ArrowRight'] || this.keys['d'] || this.keys['D']) vx += 1;
+        if (this.keys['ArrowUp']    || this.keys['w'] || this.keys['W']) vy -= 1;
+        if (this.keys['ArrowDown']  || this.keys['s'] || this.keys['S']) vy += 1;
+
+        if (vx === 0 && vy === 0) return;
+
+        const len = Math.sqrt(vx*vx + vy*vy);
+        vx = vx/len * this.SPEED;
+        vy = vy/len * this.SPEED;
+
+        const nx = this.px + vx;
+        const ny = this.py + vy;
+        const r  = this.PLAYER_R * 0.85;
+
+        // 轴分离碰撞（分别测试X和Y）
+        let canX = true, canY = true;
+        for (const w of this.walls) {
+            if (this._circleRect(nx, this.py, r, w)) canX = false;
+            if (this._circleRect(this.px, ny, r, w)) canY = false;
+        }
+        if (canX) this.px = nx;
+        if (canY) this.py = ny;
+
+        if (canX || canY) {
+            // 揭示玩家附近极小范围（只能看清脚下，没声波就是黑的）
+            this.revealCircle(this.px, this.py, this.PLAYER_R * 1.1);
+
+            this.stepTimer++;
+            if (this.stepTimer % 16 === 0) this.audio.step();
+        }
+    }
+
+    _circleRect(cx, cy, cr, r) {
+        const nearX = Math.max(r.x, Math.min(cx, r.x + r.w));
+        const nearY = Math.max(r.y, Math.min(cy, r.y + r.h));
+        return (cx - nearX)**2 + (cy - nearY)**2 < cr*cr;
+    }
+
+    // ── Update ────────────────────────────────
+    update() {
+        if (!this.running || this.won || this.dead) return;
+
+        if (this.cooldown > 0) this.cooldown--;
+
+        this.movePlayer();
+
+        // 迷雾回潮：已揭示区域缓慢重新变暗（难度越高越快）
+        // 关卡0→0.004, 关卡3→0.010，形成持续压迫感
+        const fogRate = 0.004 + this.levelIdx * 0.002;
+        this.fogCtx.globalCompositeOperation = 'source-over';
+        this.fogCtx.fillStyle = `rgba(0,0,0,${fogRate})`;
+        this.fogCtx.fillRect(0, 0, this.fogCanvas.width, this.fogCanvas.height);
+        // 但玩家脚下始终维持一个极小的可见圆
+        this.revealCircle(this.px, this.py, this.PLAYER_R * 1.1);
+
+        // 更新声波
+        for (let i = this.waves.length - 1; i >= 0; i--) {
+            const w = this.waves[i];
+            w.r     += w.speed;
+            w.alpha  = Math.max(0, 1 - w.r / w.maxR * 1.4);
+            w.echos.forEach(e => { e.alpha = Math.max(0, e.alpha - 0.012); });
+            if (w.alpha <= 0) this.waves.splice(i, 1);
+        }
+
+        // 到达出口
+        if (dist2(this.px, this.py, this.exitX, this.exitY) < this.EXIT_R + this.PLAYER_R) {
+            this.win();
+        }
+
+        // 声波用尽
+        if (this.emits <= 0 && this.waves.length === 0 && !this.won) {
+            this.dead = true;
+            this.audio.fail();
+            this.showOverlay('💀 迷失在黑暗中', '声波耗尽，无法再探路', true);
+        }
+    }
+
+    // ── Win/Lose ──────────────────────────────
+    win() {
+        if (this.won) return;
+        this.won = true;
+        this.audio.win();
+        const remain = this.emits;
+        const pct = remain / this.maxEmits;
+        const stars = pct > 0.6 ? '⭐⭐⭐' : pct > 0.3 ? '⭐⭐' : '⭐';
+        this.showOverlay(`${stars} 通关！`, `剩余声波: ${remain} / ${this.maxEmits}`, true, true);
+    }
+
+    flashEmpty() {
+        this.emitEl.style.animation = 'none';
+        this.emitEl.style.color = '#ff4444';
+        setTimeout(() => { this.emitEl.style.color = ''; }, 400);
+    }
+
+    // ── Render ────────────────────────────────
+    render() {
+        const ctx = this.ctx;
+        const W = this.canvas.width, H = this.canvas.height;
+
+        ctx.fillStyle = '#080818';
+        ctx.fillRect(0, 0, W, H);
+
+        if (!this.running && !this.won) return;
+
+        // 墙壁
+        const MATS = {
+            stone: { fill: '#5a5a6a', hi: '#7a7a8a' },
+            metal: { fill: '#8a9aaa', hi: '#aabbc0' },
+            wood:  { fill: '#6b3a18', hi: '#8b5028' },
+        };
+        for (const w of this.walls) {
+            const m = MATS[w.mat] || MATS.stone;
+            ctx.fillStyle = m.fill;
+            ctx.fillRect(w.x, w.y, w.w, w.h);
+            ctx.fillStyle = m.hi;
+            ctx.fillRect(w.x+1, w.y+1, w.w-2, 2);
+        }
+
+        // 出口（始终在迷雾下面，只有揭示后才可见）
+        const exPulse = 0.7 + 0.3 * Math.sin(Date.now() / 300);
+        const exGrad = ctx.createRadialGradient(this.exitX, this.exitY, 0, this.exitX, this.exitY, this.EXIT_R * 1.8);
+        exGrad.addColorStop(0,   `rgba(0,255,80,${exPulse})`);
+        exGrad.addColorStop(0.5, `rgba(0,200,60,${exPulse*0.5})`);
+        exGrad.addColorStop(1,   'rgba(0,180,40,0)');
+        ctx.beginPath();
+        ctx.arc(this.exitX, this.exitY, this.EXIT_R * 1.8, 0, Math.PI*2);
+        ctx.fillStyle = exGrad;
+        ctx.fill();
+
+        // 声波圆 + 回声点
+        for (const w of this.waves) {
+            // 主波纹
+            ctx.beginPath();
+            ctx.arc(w.ox, w.oy, w.r, 0, Math.PI*2);
+            ctx.strokeStyle = `rgba(80,160,255,${w.alpha * 0.7})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 回声点（带材质颜色）
+            for (const e of w.echos) {
+                if (e.alpha <= 0) continue;
+                const ec = e.mat === 'metal' ? `rgba(180,210,240,${e.alpha})` :
+                           e.mat === 'wood'  ? `rgba(200,130,80,${e.alpha})` :
+                                               `rgba(160,160,175,${e.alpha})`;
+                ctx.beginPath();
+                ctx.arc(e.x, e.y, 5, 0, Math.PI*2);
+                ctx.fillStyle = ec;
+                ctx.fill();
+
+                // 短线：表示"墙在这个方向"
+                ctx.strokeStyle = ec;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(w.ox, w.oy);
+                ctx.lineTo(e.x, e.y);
+                ctx.globalAlpha = e.alpha * 0.12;
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // 玩家
+        const pg = ctx.createRadialGradient(this.px, this.py, 0, this.px, this.py, this.PLAYER_R);
+        pg.addColorStop(0, '#ffffff');
+        pg.addColorStop(0.6, '#88ccff');
+        pg.addColorStop(1, '#2266cc');
+        ctx.beginPath();
+        ctx.arc(this.px, this.py, this.PLAYER_R, 0, Math.PI*2);
+        ctx.fillStyle = pg;
+        ctx.fill();
+        // 极小的移动视野光晕
+        const glow = ctx.createRadialGradient(this.px, this.py, 0, this.px, this.py, this.PLAYER_R * 2.5);
+        glow.addColorStop(0, 'rgba(100,180,255,0.25)');
+        glow.addColorStop(1, 'rgba(100,180,255,0)');
+        ctx.beginPath();
+        ctx.arc(this.px, this.py, this.PLAYER_R * 2.5, 0, Math.PI*2);
+        ctx.fillStyle = glow;
+        ctx.fill();
+
+        // ── 迷雾叠加 ──
+        ctx.drawImage(this.fogCanvas, 0, 0);
+
+        // ── 声波不足时，红色边框警告 ──
+        if (this.emits <= 2 && this.running && !this.won && !this.dead) {
+            const pulse = 0.4 + 0.4 * Math.abs(Math.sin(Date.now() / 250));
+            const border = this.emits === 0 ? pulse : pulse * 0.6;
+            ctx.strokeStyle = `rgba(255,30,30,${border})`;
+            ctx.lineWidth = 10;
+            ctx.strokeRect(5, 5, W - 10, H - 10);
+        }
+    }
+
+    // ── HUD ──────────────────────────────────
+    updateHUD() {
+        const label = this.emits === 0 ? '声波: 无' : `声波: ${this.emits}`;
+        this.emitEl.textContent = label;
+        this.emitEl.style.color = this.emits === 0 ? '#ff2222' :
+                                  this.emits <= 2   ? '#ff4444' :
+                                  this.emits <= 4   ? '#ffaa00' : '#44bbff';
+        this.nameEl.textContent = LEVELS[this.levelIdx]?.name ?? '';
+    }
+
+    // ── Overlay ──────────────────────────────
+    hideOverlay() { this.overlay.style.display = 'none'; }
+    showOverlay(title, desc, showButtons, isWin=false) {
+        const ov = this.overlay;
+        ov.style.display = 'flex';
+        ov.innerHTML = `
+            <h2>${title}</h2>
+            <p>${desc}</p>
+            ${showButtons ? `<div class="btn-row">
+                <button class="btn" onclick="G.restart()">重新开始</button>
+                ${isWin && this.levelIdx + 1 < LEVELS.length
+                    ? `<button class="btn" onclick="G.nextLevel()">下一关 →</button>`
+                    : ''
+                }
+            </div>` : ''}
+        `;
+    }
+
+    // ── Loop ─────────────────────────────────
+    loop() {
+        this.update();
+        this.render();
+        this.updateHUD();
+        requestAnimationFrame(() => this.loop());
+    }
+}
+
+const G = new Game();
+</script>
+</body>
+</html>
