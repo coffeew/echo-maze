@@ -14,7 +14,6 @@
             width: 100%; height: 100%;
             overflow: hidden;
             user-select: none;
-            touch-action: none;
         }
         #root {
             display: flex;
@@ -103,46 +102,50 @@
         #desktopControls .btn-row { display: flex; gap: 10px; }
         #hint { color: #445; font-size: 11px; text-align: center; }
 
-        /* 移动端摇杆区：紧凑高度 */
+        /* 移动端摇杆区：固定高度，不被截断 */
         #mobileControls {
             display: none;
             width: 100%;
-            padding: 4px 20px;
+            padding: 6px 24px;
             align-items: center;
             justify-content: space-between;
-            height: 110px;
+            height: 130px;
+            flex-shrink: 0;
         }
         #dpad {
             position: relative;
-            width: 110px; height: 110px;
+            width: 114px; height: 114px;
             flex-shrink: 0;
         }
         .dpad-btn {
             position: absolute;
             width: 36px; height: 36px;
-            background: rgba(255,255,255,0.12);
-            border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.3);
             border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
             font-size: 15px; cursor: pointer;
+            /* 让pointer事件穿透到按钮本身 */
+            touch-action: manipulation;
         }
-        .dpad-btn:active { background: rgba(255,255,255,0.3); }
-        #dUp    { top:0;   left:37px; }
-        #dDown  { top:74px; left:37px; }
-        #dLeft  { top:37px; left:0; }
-        #dRight { top:37px; left:74px; }
+        .dpad-btn.pressed { background: rgba(255,255,255,0.35); }
+        #dUp    { top:0;    left:39px; }
+        #dDown  { top:78px; left:39px; }
+        #dLeft  { top:39px; left:0;    }
+        #dRight { top:39px; left:78px; }
 
         #emitBtn {
-            width: 72px; height: 72px;
+            width: 76px; height: 76px;
             background: radial-gradient(circle, rgba(0,150,255,0.35), rgba(0,80,200,0.18));
             border: 2px solid rgba(0,150,255,0.5);
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
             flex-direction: column;
             font-size: 22px; cursor: pointer; flex-shrink: 0;
+            touch-action: manipulation;
         }
-        #emitBtn span { font-size: 9px; color: #88ccff; margin-top: 1px; }
-        #emitBtn:active { background: radial-gradient(circle, rgba(0,180,255,0.5), rgba(0,100,220,0.3)); }
+        #emitBtn span { font-size: 9px; color: #88ccff; margin-top: 2px; }
+        #emitBtn.pressed { background: radial-gradient(circle, rgba(0,200,255,0.55), rgba(0,120,230,0.35)); }
 
         #mobileCtrlBtns {
             display: flex; flex-direction: column; gap: 8px;
@@ -151,9 +154,10 @@
             background: rgba(255,255,255,0.08);
             border: 1px solid rgba(255,255,255,0.15);
             color: #aaa; border-radius: 14px;
-            padding: 5px 12px; font-size: 11px; cursor: pointer;
+            padding: 6px 14px; font-size: 12px; cursor: pointer;
+            touch-action: manipulation;
         }
-        .sm-btn:active { background: rgba(255,255,255,0.2); }
+        .sm-btn:active { background: rgba(255,255,255,0.22); }
 
         @media (max-width: 600px), (max-height: 700px) {
             #desktopControls { display: none !important; }
@@ -832,9 +836,8 @@ class Game {
         // 注意：resize 只改尺寸，不重载关卡（重载会导致移动端状态重置）
     }
 
-    // ── 虚拟摇杆 ──────────────────────────────
+    // ── 虚拟摇杆（pointerdown 比 touchstart 更可靠）──
     _bindDpad() {
-        const press = (key, val) => { this.keys[key] = val; };
         const dirs = [
             ['dUp',    'ArrowUp'],
             ['dDown',  'ArrowDown'],
@@ -844,26 +847,34 @@ class Game {
         dirs.forEach(([id, key]) => {
             const el = document.getElementById(id);
             if (!el) return;
-            el.addEventListener('touchstart',  e => { e.preventDefault(); press(key, true);  }, { passive: false });
-            el.addEventListener('touchend',    e => { e.preventDefault(); press(key, false); }, { passive: false });
-            el.addEventListener('touchcancel', e => { e.preventDefault(); press(key, false); }, { passive: false });
-            el.addEventListener('mousedown', () => press(key, true));
-            el.addEventListener('mouseup',   () => press(key, false));
+            el.addEventListener('pointerdown', e => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.keys[key] = true;
+                el.classList.add('pressed');
+            });
+            const release = e => {
+                this.keys[key] = false;
+                el.classList.remove('pressed');
+            };
+            el.addEventListener('pointerup',     release);
+            el.addEventListener('pointercancel', release);
+            el.addEventListener('pointerleave',  release);
         });
 
         // 发声按钮
         const emitBtn = document.getElementById('emitBtn');
         if (emitBtn) {
-            emitBtn.addEventListener('touchend', e => {
+            emitBtn.addEventListener('pointerdown', e => {
                 e.preventDefault();
+                e.stopPropagation();
+                emitBtn.classList.add('pressed');
                 if (!this.running || this.won || this.dead) return;
                 this.audio.ctx && this.audio.ctx.resume();
                 this.emitWave();
-            }, { passive: false });
-            emitBtn.addEventListener('click', () => {
-                if (!this.running || this.won || this.dead) return;
-                this.emitWave();
             });
+            emitBtn.addEventListener('pointerup',     () => emitBtn.classList.remove('pressed'));
+            emitBtn.addEventListener('pointercancel', () => emitBtn.classList.remove('pressed'));
         }
     }
 
