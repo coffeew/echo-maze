@@ -659,61 +659,50 @@ class Game {
         ctx.fillStyle = outerGrad;
         ctx.fill();
 
-        // 中心实心圆
+        // 中心实心圆（无文字）
         ctx.beginPath();
         ctx.arc(ex, ey, this.EXIT_R * 0.7, 0, Math.PI*2);
         ctx.fillStyle = `rgba(0,255,80,${pulse})`;
         ctx.fill();
 
-        // "EXIT" 文字
-        ctx.save();
-        ctx.font = `bold ${Math.max(11, this.EXIT_R * 0.9)}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#000';
-        ctx.fillText('EXIT', ex, ey);
-        ctx.restore();
-
-        // ── 方向箭头：从玩家到出口，贴着屏幕边缘显示 ──
+        // ── 方向箭头：从玩家位置出发，射向出口方向，贴屏幕边缘 ──
         const dx = ex - this.px;
         const dy = ey - this.py;
         const distToExit = Math.sqrt(dx*dx + dy*dy);
 
-        // 只有出口不在视野内时才显示箭头（距离 > 2格）
-        if (distToExit > this.cellW * 2.5) {
+        // 出口足够远时才显示箭头（避免箭头贴着出口）
+        if (distToExit > this.cellW * 3) {
             const angle = Math.atan2(dy, dx);
-            // 箭头贴在屏幕边框内侧
-            const margin = 28;
+            const margin = 30;
             const W = this.canvas.width, H = this.canvas.height;
-            const cx = W / 2, cy = H / 2;
-            // 从中心向角度方向延伸到边缘
-            const tanA = Math.tan(angle);
-            let ax, ay;
-            if (Math.cos(angle) > 0) {
-                ax = W - margin;
-                ay = cy + tanA * (ax - cx);
-            } else {
-                ax = margin;
-                ay = cy + tanA * (ax - cx);
-            }
-            if (ay < margin)        { ay = margin;   ax = cx + (ay - cy) / tanA; }
-            if (ay > H - margin)    { ay = H - margin; ax = cx + (ay - cy) / tanA; }
-            ax = Math.max(margin, Math.min(W - margin, ax));
-            ay = Math.max(margin, Math.min(H - margin, ay));
 
-            // 绘制三角箭头
+            // 从玩家位置沿方向射线，找到与屏幕边框的交点
+            const px = this.px, py = this.py;
+            const cos = Math.cos(angle), sin = Math.sin(angle);
+            let tMin = Infinity;
+
+            // 与四条边求交
+            if (cos > 0)  tMin = Math.min(tMin, (W - margin - px) / cos);
+            if (cos < 0)  tMin = Math.min(tMin, (margin - px) / cos);
+            if (sin > 0)  tMin = Math.min(tMin, (H - margin - py) / sin);
+            if (sin < 0)  tMin = Math.min(tMin, (margin - py) / sin);
+
+            const ax = Math.max(margin, Math.min(W - margin, px + cos * tMin));
+            const ay = Math.max(margin, Math.min(H - margin, py + sin * tMin));
+
+            // 三角箭头
             ctx.save();
             ctx.translate(ax, ay);
             ctx.rotate(angle);
-            const sz = 12;
+            const sz = 11;
             ctx.beginPath();
             ctx.moveTo(sz, 0);
             ctx.lineTo(-sz, -sz * 0.6);
-            ctx.lineTo(-sz, sz * 0.6);
+            ctx.lineTo(-sz,  sz * 0.6);
             ctx.closePath();
-            ctx.fillStyle = `rgba(0,255,80,${0.5 + 0.4 * Math.abs(Math.sin(t / 400))})`;
+            ctx.fillStyle = `rgba(0,255,80,${0.55 + 0.4 * Math.abs(Math.sin(t / 400))})`;
             ctx.fill();
-            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+            ctx.strokeStyle = 'rgba(0,0,0,0.6)';
             ctx.lineWidth = 1;
             ctx.stroke();
             ctx.restore();
