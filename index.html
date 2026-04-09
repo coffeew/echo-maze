@@ -337,8 +337,8 @@ class Game {
         this.fogCanvas.width  = this.canvas.width;
         this.fogCanvas.height = this.canvas.height;
         this.fogCtx = this.fogCanvas.getContext('2d');
-        // 初始全黑
-        this.fogCtx.fillStyle = '#000';
+        // 初始迷雾：深蓝色（比纯黑透气，揭示后对比明显）
+        this.fogCtx.fillStyle = 'rgba(4,6,28,0.96)';
         this.fogCtx.fillRect(0, 0, this.fogCanvas.width, this.fogCanvas.height);
         // 起点周围揭示一小块
         this.revealCircle(this.px, this.py, this.cellW * 0.45);
@@ -355,11 +355,11 @@ class Game {
 
     // ── 迷雾 ──────────────────────────────────
     revealCircle(cx, cy, r) {
-        // 用 destination-out 在迷雾 canvas 上"擦除"圆形区域
+        // destination-out 擦除迷雾，揭示下方场景
         this.fogCtx.globalCompositeOperation = 'destination-out';
         const grad = this.fogCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
         grad.addColorStop(0,   'rgba(0,0,0,1)');
-        grad.addColorStop(0.6, 'rgba(0,0,0,0.9)');
+        grad.addColorStop(0.7, 'rgba(0,0,0,0.85)');
         grad.addColorStop(1,   'rgba(0,0,0,0)');
         this.fogCtx.fillStyle = grad;
         this.fogCtx.beginPath();
@@ -500,7 +500,7 @@ class Game {
         // 迷雾回潮：已揭示区域缓慢重新变暗
         const fogRate = 0.003 + this.levelIdx * 0.0015;
         this.fogCtx.globalCompositeOperation = 'source-over';
-        this.fogCtx.fillStyle = `rgba(0,0,0,${fogRate})`;
+        this.fogCtx.fillStyle = `rgba(4,6,28,${fogRate})`;
         this.fogCtx.fillRect(0, 0, this.fogCanvas.width, this.fogCanvas.height);
 
         // 更新声波
@@ -566,7 +566,7 @@ class Game {
             ctx.fillRect(w.x+1, w.y+1, w.w-2, 2);
         }
 
-        // 出口（始终在迷雾下面，只有揭示后才可见）
+        // 出口（在迷雾下方，揭示后才可见）
         const exPulse = 0.7 + 0.3 * Math.sin(Date.now() / 300);
         const exGrad = ctx.createRadialGradient(this.exitX, this.exitY, 0, this.exitX, this.exitY, this.EXIT_R * 1.8);
         exGrad.addColorStop(0,   `rgba(0,255,80,${exPulse})`);
@@ -630,6 +630,9 @@ class Game {
         // ── 迷雾叠加 ──
         ctx.drawImage(this.fogCanvas, 0, 0);
 
+        // ── 出口标记（迷雾上方，始终可见）──
+        this._drawExitMarker(ctx);
+
         // ── 声波不足时，红色边框警告 ──
         if (this.emits <= 2 && this.running && !this.won && !this.dead) {
             const pulse = 0.4 + 0.4 * Math.abs(Math.sin(Date.now() / 250));
@@ -637,6 +640,83 @@ class Game {
             ctx.strokeStyle = `rgba(255,30,30,${border})`;
             ctx.lineWidth = 10;
             ctx.strokeRect(5, 5, W - 10, H - 10);
+        }
+    }
+
+    // ── 出口标记（始终在最顶层）─────────────────
+    _drawExitMarker(ctx) {
+        const ex = this.exitX, ey = this.exitY;
+        const t  = Date.now();
+        const pulse = 0.6 + 0.4 * Math.abs(Math.sin(t / 500));
+
+        // 绿色光圈（大）
+        const outerGrad = ctx.createRadialGradient(ex, ey, 0, ex, ey, this.EXIT_R * 2.5);
+        outerGrad.addColorStop(0,   `rgba(0,255,90,${pulse * 0.6})`);
+        outerGrad.addColorStop(0.5, `rgba(0,230,70,${pulse * 0.25})`);
+        outerGrad.addColorStop(1,   'rgba(0,200,50,0)');
+        ctx.beginPath();
+        ctx.arc(ex, ey, this.EXIT_R * 2.5, 0, Math.PI*2);
+        ctx.fillStyle = outerGrad;
+        ctx.fill();
+
+        // 中心实心圆
+        ctx.beginPath();
+        ctx.arc(ex, ey, this.EXIT_R * 0.7, 0, Math.PI*2);
+        ctx.fillStyle = `rgba(0,255,80,${pulse})`;
+        ctx.fill();
+
+        // "EXIT" 文字
+        ctx.save();
+        ctx.font = `bold ${Math.max(11, this.EXIT_R * 0.9)}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#000';
+        ctx.fillText('EXIT', ex, ey);
+        ctx.restore();
+
+        // ── 方向箭头：从玩家到出口，贴着屏幕边缘显示 ──
+        const dx = ex - this.px;
+        const dy = ey - this.py;
+        const distToExit = Math.sqrt(dx*dx + dy*dy);
+
+        // 只有出口不在视野内时才显示箭头（距离 > 2格）
+        if (distToExit > this.cellW * 2.5) {
+            const angle = Math.atan2(dy, dx);
+            // 箭头贴在屏幕边框内侧
+            const margin = 28;
+            const W = this.canvas.width, H = this.canvas.height;
+            const cx = W / 2, cy = H / 2;
+            // 从中心向角度方向延伸到边缘
+            const tanA = Math.tan(angle);
+            let ax, ay;
+            if (Math.cos(angle) > 0) {
+                ax = W - margin;
+                ay = cy + tanA * (ax - cx);
+            } else {
+                ax = margin;
+                ay = cy + tanA * (ax - cx);
+            }
+            if (ay < margin)        { ay = margin;   ax = cx + (ay - cy) / tanA; }
+            if (ay > H - margin)    { ay = H - margin; ax = cx + (ay - cy) / tanA; }
+            ax = Math.max(margin, Math.min(W - margin, ax));
+            ay = Math.max(margin, Math.min(H - margin, ay));
+
+            // 绘制三角箭头
+            ctx.save();
+            ctx.translate(ax, ay);
+            ctx.rotate(angle);
+            const sz = 12;
+            ctx.beginPath();
+            ctx.moveTo(sz, 0);
+            ctx.lineTo(-sz, -sz * 0.6);
+            ctx.lineTo(-sz, sz * 0.6);
+            ctx.closePath();
+            ctx.fillStyle = `rgba(0,255,80,${0.5 + 0.4 * Math.abs(Math.sin(t / 400))})`;
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.restore();
         }
     }
 
