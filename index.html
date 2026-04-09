@@ -307,9 +307,22 @@ class Game {
         this.PLAYER_R = Math.min(this.cellW, this.cellH) * 0.22;
         this.SPEED     = Math.min(this.cellW, this.cellH) * 0.04;
 
-        // 出口在右下角格子中心
-        this.exitX = this.cellW * (lv.cols - 0.5);
-        this.exitY = this.cellH * (lv.rows - 0.5);
+        // 出口：随机选一条边的中段，保证与起点距离足够远
+        const exits = [
+            // 右边中间
+            { x: this.cellW * (lv.cols - 0.5), y: this.cellH * (rnd(Math.floor(lv.rows*0.3), Math.floor(lv.rows*0.7))) },
+            // 下边中间
+            { x: this.cellW * (rnd(Math.floor(lv.cols*0.3), Math.floor(lv.cols*0.7))), y: this.cellH * (lv.rows - 0.5) },
+            // 上边中间（仅关卡2+）
+            { x: this.cellW * (rnd(Math.floor(lv.cols*0.4), lv.cols-1)), y: this.cellH * 0.5 },
+            // 左边下段（仅关卡3+）
+            { x: this.cellW * 0.5, y: this.cellH * (rnd(Math.floor(lv.rows*0.6), lv.rows-1)) },
+        ];
+        // 按关卡开放的出口候选数
+        const candidateCount = Math.min(2 + this.levelIdx, exits.length);
+        const chosen = exits[rnd(0, candidateCount - 1)];
+        this.exitX = chosen.x;
+        this.exitY = chosen.y;
         this.EXIT_R = this.PLAYER_R * 1.6;
 
         // 声波
@@ -381,14 +394,22 @@ class Game {
     }
 
     castRays(ox, oy) {
-        const STEPS = 360;         // 每1度一条射线
+        const STEPS = 360;   // 每1度一条射线
         const DSTEP = 1.5;
         const echos = [];
+        // 揭示路径上的走廊（每隔 pathStep 揭示一个小点，让玩家看到通道）
+        const pathReveal = this.cellW * 0.45;
+        const pathStep   = this.cellW * 0.9; // 揭示点间距
 
         for (let i = 0; i < STEPS; i++) {
             const angle = (i / STEPS) * Math.PI * 2;
             const dx = Math.cos(angle);
             const dy = Math.sin(angle);
+
+            let wallHits = 0;           // 已穿透墙壁数
+            const MAX_PENETRATE = 2;    // 最多穿2面墙继续扩散
+            let inWall = false;
+            let nextPathReveal = pathStep;
 
             for (let d = 4; d < 1200; d += DSTEP) {
                 const cx = ox + dx * d;
@@ -396,12 +417,25 @@ class Game {
                 if (cx < 0 || cy < 0 || cx > this.canvas.width || cy > this.canvas.height) break;
 
                 const wall = this.hitWall(cx, cy);
-                if (wall) {
+
+                if (wall && !inWall) {
+                    // 新碰到一面墙
+                    inWall = true;
+                    wallHits++;
                     echos.push({ x: cx, y: cy, mat: wall.mat, d, alpha: 1 });
-                    // 声波路径上揭示区域（只揭示碰撞点，不揭示整条路径→无法穿墙作弊）
-                    this.revealCircle(cx, cy, this.cellW * 0.28);
+                    // 碰撞点揭示较大圆，让玩家知道墙在哪里
+                    this.revealCircle(cx, cy, this.cellW * 0.55);
                     this.audio.echo(d, wall.mat);
-                    break;
+                    if (wallHits >= MAX_PENETRATE) break; // 穿透上限，停止
+                } else if (!wall && inWall) {
+                    // 穿出墙壁，继续在通道内扩散
+                    inWall = false;
+                }
+
+                // 通道内：沿路揭示（让走廊轮廓可见）
+                if (!wall && d >= nextPathReveal) {
+                    this.revealCircle(cx, cy, pathReveal * (1 - wallHits * 0.35));
+                    nextPathReveal += pathStep;
                 }
             }
         }
@@ -443,9 +477,7 @@ class Game {
         if (canY) this.py = ny;
 
         if (canX || canY) {
-            // 揭示玩家附近极小范围（只能看清脚下，没声波就是黑的）
-            this.revealCircle(this.px, this.py, this.PLAYER_R * 1.1);
-
+            // 移动不揭示视野——必须靠声波探路
             this.stepTimer++;
             if (this.stepTimer % 16 === 0) this.audio.step();
         }
@@ -465,14 +497,11 @@ class Game {
 
         this.movePlayer();
 
-        // 迷雾回潮：已揭示区域缓慢重新变暗（难度越高越快）
-        // 关卡0→0.004, 关卡3→0.010，形成持续压迫感
-        const fogRate = 0.004 + this.levelIdx * 0.002;
+        // 迷雾回潮：已揭示区域缓慢重新变暗
+        const fogRate = 0.003 + this.levelIdx * 0.0015;
         this.fogCtx.globalCompositeOperation = 'source-over';
         this.fogCtx.fillStyle = `rgba(0,0,0,${fogRate})`;
         this.fogCtx.fillRect(0, 0, this.fogCanvas.width, this.fogCanvas.height);
-        // 但玩家脚下始终维持一个极小的可见圆
-        this.revealCircle(this.px, this.py, this.PLAYER_R * 1.1);
 
         // 更新声波
         for (let i = this.waves.length - 1; i >= 0; i--) {
