@@ -649,7 +649,7 @@ class Game {
         const t  = Date.now();
         const pulse = 0.6 + 0.4 * Math.abs(Math.sin(t / 500));
 
-        // 绿色光圈（大）
+        // 外层光晕
         const outerGrad = ctx.createRadialGradient(ex, ey, 0, ex, ey, this.EXIT_R * 2.5);
         outerGrad.addColorStop(0,   `rgba(0,255,90,${pulse * 0.6})`);
         outerGrad.addColorStop(0.5, `rgba(0,230,70,${pulse * 0.25})`);
@@ -659,54 +659,11 @@ class Game {
         ctx.fillStyle = outerGrad;
         ctx.fill();
 
-        // 中心实心圆（无文字）
+        // 中心实心圆
         ctx.beginPath();
         ctx.arc(ex, ey, this.EXIT_R * 0.7, 0, Math.PI*2);
         ctx.fillStyle = `rgba(0,255,80,${pulse})`;
         ctx.fill();
-
-        // ── 方向箭头：从玩家位置出发，射向出口方向，贴屏幕边缘 ──
-        const dx = ex - this.px;
-        const dy = ey - this.py;
-        const distToExit = Math.sqrt(dx*dx + dy*dy);
-
-        // 出口足够远时才显示箭头（避免箭头贴着出口）
-        if (distToExit > this.cellW * 3) {
-            const angle = Math.atan2(dy, dx);
-            const margin = 30;
-            const W = this.canvas.width, H = this.canvas.height;
-
-            // 从玩家位置沿方向射线，找到与屏幕边框的交点
-            const px = this.px, py = this.py;
-            const cos = Math.cos(angle), sin = Math.sin(angle);
-            let tMin = Infinity;
-
-            // 与四条边求交
-            if (cos > 0)  tMin = Math.min(tMin, (W - margin - px) / cos);
-            if (cos < 0)  tMin = Math.min(tMin, (margin - px) / cos);
-            if (sin > 0)  tMin = Math.min(tMin, (H - margin - py) / sin);
-            if (sin < 0)  tMin = Math.min(tMin, (margin - py) / sin);
-
-            const ax = Math.max(margin, Math.min(W - margin, px + cos * tMin));
-            const ay = Math.max(margin, Math.min(H - margin, py + sin * tMin));
-
-            // 三角箭头
-            ctx.save();
-            ctx.translate(ax, ay);
-            ctx.rotate(angle);
-            const sz = 11;
-            ctx.beginPath();
-            ctx.moveTo(sz, 0);
-            ctx.lineTo(-sz, -sz * 0.6);
-            ctx.lineTo(-sz,  sz * 0.6);
-            ctx.closePath();
-            ctx.fillStyle = `rgba(0,255,80,${0.55 + 0.4 * Math.abs(Math.sin(t / 400))})`;
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-            ctx.restore();
-        }
     }
 
     // ── HUD ──────────────────────────────────
