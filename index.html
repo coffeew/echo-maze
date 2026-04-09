@@ -2,123 +2,229 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
     <title>回声迷宫 - Echo Maze</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body {
             background: #060610;
             color: #fff;
             font-family: 'Arial', sans-serif;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            user-select: none;
+            touch-action: none;
+        }
+        #root {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            height: 100vh;
-            overflow: hidden;
-            user-select: none;
+            justify-content: flex-start;
+            width: 100%; height: 100%;
         }
         #title {
-            font-size: 20px;
-            letter-spacing: 4px;
+            font-size: clamp(12px, 3vw, 20px);
+            letter-spacing: clamp(2px, 1vw, 4px);
             color: #4488ff;
-            margin-bottom: 10px;
+            padding: 6px 0 4px;
             text-shadow: 0 0 15px #4488ff;
+            flex-shrink: 0;
         }
         #gameWrap {
             position: relative;
+            flex-shrink: 0;
         }
         canvas {
             display: block;
             border: 1px solid #1a2050;
             border-radius: 4px;
-            box-shadow: 0 0 40px rgba(30, 80, 200, 0.4);
+            box-shadow: 0 0 30px rgba(30,80,200,0.4);
+            touch-action: none;
         }
         #hud {
             position: absolute;
-            top: 8px;
-            left: 0; right: 0;
+            top: 8px; left: 0; right: 0;
             display: flex;
             justify-content: space-between;
-            padding: 0 12px;
+            padding: 0 10px;
             pointer-events: none;
         }
         .hud-pill {
             background: rgba(0,0,0,0.75);
             border: 1px solid #223;
-            padding: 5px 14px;
+            padding: 4px 12px;
             border-radius: 20px;
-            font-size: 15px;
+            font-size: clamp(11px, 3vw, 15px);
             font-weight: bold;
         }
         #emitCount { color: #44bbff; }
         #levelName  { color: #ffbb33; }
 
-        /* 全屏覆盖 overlay */
         #overlay {
             position: absolute;
             inset: 0;
-            background: rgba(0,0,0,0.82);
+            background: rgba(0,0,0,0.85);
             border-radius: 4px;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 16px;
+            gap: 14px;
+            padding: 20px;
         }
-        #overlay h2 { font-size: 28px; text-shadow: 0 0 12px #fff; }
-        #overlay p  { font-size: 15px; color: #aaa; max-width: 320px; text-align: center; }
-        #overlay .btn-row { display: flex; gap: 12px; margin-top: 6px; }
+        #overlay h2 { font-size: clamp(18px, 5vw, 28px); text-shadow: 0 0 12px #fff; text-align: center; }
+        #overlay p  { font-size: clamp(12px, 3vw, 15px); color: #aaa; max-width: 300px; text-align: center; line-height: 1.6; }
+        #overlay .btn-row { display: flex; gap: 12px; margin-top: 4px; flex-wrap: wrap; justify-content: center; }
         .btn {
             background: linear-gradient(135deg, #3355cc, #6633cc);
-            color: #fff;
-            border: none;
-            padding: 10px 26px;
+            color: #fff; border: none;
+            padding: clamp(8px,2vw,10px) clamp(18px,4vw,26px);
             border-radius: 24px;
-            font-size: 15px;
+            font-size: clamp(13px, 3.5vw, 15px);
             cursor: pointer;
             transition: transform .15s;
+            min-width: 80px;
         }
-        .btn:hover { transform: scale(1.06); }
-        .btn:active { transform: scale(.96); }
-        .btn.secondary {
-            background: linear-gradient(135deg, #224, #335);
+        .btn:active { transform: scale(.94); }
+        .btn.secondary { background: linear-gradient(135deg, #224, #335); }
+
+        /* 底部区域：桌面显示按钮+提示，移动端显示虚拟摇杆 */
+        #bottomBar {
+            flex-shrink: 0;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        #controls {
-            margin-top: 12px;
+        /* 桌面底部：按钮+提示 */
+        #desktopControls {
             display: flex;
-            gap: 10px;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
         }
-        #hint {
-            margin-top: 8px;
-            color: #556;
-            font-size: 13px;
-            text-align: center;
+        #desktopControls .btn-row { display: flex; gap: 10px; }
+        #hint { color: #445; font-size: 12px; text-align: center; }
+
+        /* 移动端虚拟摇杆区 */
+        #mobileControls {
+            display: none;
+            width: 100%;
+            padding: 6px 16px;
+            align-items: center;
+            justify-content: space-between;
+        }
+        /* 左边：D-pad 方向键 */
+        #dpad {
+            position: relative;
+            width: 120px; height: 120px;
+            flex-shrink: 0;
+        }
+        .dpad-btn {
+            position: absolute;
+            width: 40px; height: 40px;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+            cursor: pointer;
+            active: background rgba(255,255,255,0.25);
+        }
+        .dpad-btn:active { background: rgba(255,255,255,0.28); }
+        #dUp    { top:0;   left:40px; }
+        #dDown  { top:80px; left:40px; }
+        #dLeft  { top:40px; left:0; }
+        #dRight { top:40px; left:80px; }
+
+        /* 右边：发声按钮 */
+        #emitBtn {
+            width: 80px; height: 80px;
+            background: radial-gradient(circle, rgba(0,150,255,0.35), rgba(0,80,200,0.2));
+            border: 2px solid rgba(0,150,255,0.5);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            flex-direction: column;
+            font-size: 24px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        #emitBtn span { font-size: 10px; color: #88ccff; margin-top: 2px; }
+        #emitBtn:active { background: radial-gradient(circle, rgba(0,180,255,0.5), rgba(0,100,220,0.35)); }
+
+        /* 中间：重玩/下一关小按钮 */
+        #mobileCtrlBtns {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .sm-btn {
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #aaa;
+            border-radius: 16px;
+            padding: 6px 14px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .sm-btn:active { background: rgba(255,255,255,0.18); }
+
+        @media (max-width: 600px) or (max-height: 700px) {
+            #desktopControls { display: none !important; }
+            #mobileControls  { display: flex !important; }
+            #title { font-size: 13px; padding: 4px 0 2px; }
         }
     </style>
 </head>
 <body>
-<div id="title">E C H O &nbsp; M A Z E &nbsp; 回声迷宫</div>
-<div id="gameWrap">
-    <canvas id="c" width="800" height="560"></canvas>
-    <div id="hud">
-        <div class="hud-pill" id="emitCount">声波: --</div>
-        <div class="hud-pill" id="levelName">--</div>
+<div id="root">
+    <div id="title">E C H O &nbsp; M A Z E &nbsp; 回声迷宫</div>
+    <div id="gameWrap">
+        <canvas id="c"></canvas>
+        <div id="hud">
+            <div class="hud-pill" id="emitCount">声波: --</div>
+            <div class="hud-pill" id="levelName">--</div>
+        </div>
+        <div id="overlay">
+            <h2>回声迷宫</h2>
+            <p>在完全黑暗的迷宫中<br>点击/触屏发出声波<br>听回声判断墙壁方向<br>找到绿色出口逃脱</p>
+            <div class="btn-row">
+                <button class="btn" id="startBtn">开始游戏</button>
+            </div>
+        </div>
     </div>
-    <div id="overlay">
-        <h2>回声迷宫</h2>
-        <p>在完全黑暗的迷宫中<br>点击发出声波，听回声判断方向<br>用 WASD 或方向键移动角色</p>
-        <div class="btn-row">
-            <button class="btn" id="startBtn">开始游戏</button>
+
+    <div id="bottomBar">
+        <!-- 桌面：按钮+提示 -->
+        <div id="desktopControls">
+            <div class="btn-row">
+                <button class="btn secondary" onclick="G.restart()">重新开始</button>
+                <button class="btn secondary" onclick="G.nextLevel()">下一关</button>
+            </div>
+            <div id="hint">点击画布：发出声波 &nbsp;|&nbsp; WASD / 方向键：移动</div>
+        </div>
+        <!-- 移动端：虚拟摇杆 -->
+        <div id="mobileControls">
+            <div id="dpad">
+                <div class="dpad-btn" id="dUp">▲</div>
+                <div class="dpad-btn" id="dDown">▼</div>
+                <div class="dpad-btn" id="dLeft">◀</div>
+                <div class="dpad-btn" id="dRight">▶</div>
+            </div>
+            <div id="mobileCtrlBtns">
+                <button class="sm-btn" onclick="G.restart()">重新开始</button>
+                <button class="sm-btn" onclick="G.nextLevel()">下一关</button>
+            </div>
+            <div id="emitBtn">
+                🔊
+                <span>发声波</span>
+            </div>
         </div>
     </div>
 </div>
-<div id="controls">
-    <button class="btn secondary" onclick="G.restart()">重新开始</button>
-    <button class="btn secondary" onclick="G.nextLevel()">下一关</button>
-</div>
-<div id="hint">点击画布：发出声波 &nbsp;|&nbsp; WASD / 方向键：移动角色 &nbsp;|&nbsp; 找到绿色出口逃脱</div>
 
 <script>
 // ─────────────────────────────────────────────
@@ -267,20 +373,29 @@ class Game {
         this.levelIdx = 0;
         this.running  = false;
 
+        // ── 画布自适应屏幕 ──
+        this._resizeCanvas();
+        window.addEventListener('resize', () => this._resizeCanvas());
+
         // 键盘方向
         this.keys = {};
         window.addEventListener('keydown', e => { this.keys[e.key] = true; });
         window.addEventListener('keyup',   e => { this.keys[e.key] = false; });
 
-        // 点击发声（和移动完全分离）
+        // 点击画布发声
         this.canvas.addEventListener('click', e => {
             if (!this.running || this.won || this.dead) return;
-            const r = this.canvas.getBoundingClientRect();
-            const scaleX = this.canvas.width  / r.width;
-            const scaleY = this.canvas.height / r.height;
-            // 声波从玩家位置发射，和点击位置无关
             this.emitWave();
         });
+        // 触摸画布发声（触摸不触发click，需单独绑定）
+        this.canvas.addEventListener('touchend', e => {
+            e.preventDefault();
+            if (!this.running || this.won || this.dead) return;
+            this.emitWave();
+        }, { passive: false });
+
+        // 虚拟摇杆
+        this._bindDpad();
 
         document.getElementById('startBtn').addEventListener('click', () => {
             this.audio.ctx && this.audio.ctx.resume();
@@ -707,6 +822,75 @@ class Game {
                 }
             </div>` : ''}
         `;
+    }
+
+    // ── 画布自适应 ──────────────────────────────
+    _resizeCanvas() {
+        const root     = document.getElementById('root');
+        const title    = document.getElementById('title');
+        const bottomBar= document.getElementById('bottomBar');
+        const isMobile = window.innerWidth <= 600 || window.innerHeight <= 700;
+
+        // 计算可用空间
+        const titleH  = title.offsetHeight   || 30;
+        const bottomH = isMobile ? 140 : (bottomBar.offsetHeight || 80);
+        const pad     = 12;
+        const availW  = window.innerWidth  - pad * 2;
+        const availH  = window.innerHeight - titleH - bottomH - pad * 2;
+
+        // 保持 800:560 比例
+        const ratio   = 800 / 560;
+        let cw = Math.min(availW, availH * ratio);
+        let ch = cw / ratio;
+        if (ch > availH) { ch = availH; cw = ch * ratio; }
+
+        cw = Math.floor(cw);
+        ch = Math.floor(ch);
+
+        this.canvas.width  = cw;
+        this.canvas.height = ch;
+        this.canvas.style.width  = cw + 'px';
+        this.canvas.style.height = ch + 'px';
+
+        // 如果正在游戏中，重新加载关卡适配新尺寸
+        if (this.running && this.currentMaze) {
+            this.loadLevel(this.levelIdx);
+        }
+    }
+
+    // ── 虚拟摇杆 ──────────────────────────────
+    _bindDpad() {
+        const press = (key, val) => { this.keys[key] = val; };
+        const dirs = [
+            ['dUp',    'ArrowUp'],
+            ['dDown',  'ArrowDown'],
+            ['dLeft',  'ArrowLeft'],
+            ['dRight', 'ArrowRight'],
+        ];
+        dirs.forEach(([id, key]) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('touchstart',  e => { e.preventDefault(); press(key, true);  }, { passive: false });
+            el.addEventListener('touchend',    e => { e.preventDefault(); press(key, false); }, { passive: false });
+            el.addEventListener('touchcancel', e => { e.preventDefault(); press(key, false); }, { passive: false });
+            el.addEventListener('mousedown', () => press(key, true));
+            el.addEventListener('mouseup',   () => press(key, false));
+        });
+
+        // 发声按钮
+        const emitBtn = document.getElementById('emitBtn');
+        if (emitBtn) {
+            emitBtn.addEventListener('touchend', e => {
+                e.preventDefault();
+                if (!this.running || this.won || this.dead) return;
+                this.audio.ctx && this.audio.ctx.resume();
+                this.emitWave();
+            }, { passive: false });
+            emitBtn.addEventListener('click', () => {
+                if (!this.running || this.won || this.dead) return;
+                this.emitWave();
+            });
+        }
     }
 
     // ── Loop ─────────────────────────────────
