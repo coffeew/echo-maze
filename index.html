@@ -360,6 +360,7 @@ class Game {
         this.WALL_T  = 10;
         this.levelIdx = 0;
         this.running  = false;
+        this.emits    = undefined; // 游戏未开始时占位
 
         // ── 画布自适应屏幕 ──
         this._resizeCanvas();
@@ -786,6 +787,12 @@ class Game {
 
     // ── HUD ──────────────────────────────────
     updateHUD() {
+        if (this.emits === undefined) {
+            this.emitEl.textContent = '声波: --';
+            this.emitEl.style.color = '#44bbff';
+            this.nameEl.textContent = LEVELS[this.levelIdx]?.name ?? '--';
+            return;
+        }
         const label = this.emits === 0 ? '声波: 无' : `声波: ${this.emits}`;
         this.emitEl.textContent = label;
         this.emitEl.style.color = this.emits === 0 ? '#ff2222' :
